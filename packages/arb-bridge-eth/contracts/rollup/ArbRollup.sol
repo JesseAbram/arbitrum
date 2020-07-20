@@ -368,18 +368,22 @@ contract ArbRollup is IArbRollup, NodeGraph, Staking {
                     vmProtoStateHashes,
                     messageCounts,
                     messages
-                ),
-                stakerAddresses,
-                stakerProofs,
-                stakerProofOffsets
+                )
             );
     }
 
+    struct Assertion  {
+        bytes32 confNode;
+        uint256 startTime;
+        bool isDissproven;
+        uint256 deadlineTicks;
+    }
+
+    mapping (uint256 => Assertion) assertions;
+    uint256 assertionCount;
+
     function _confirm(
-        RollupUtils.ConfirmData memory data,
-        address[] memory stakerAddresses,
-        bytes32[] memory stakerProofs,
-        uint256[] memory stakerProofOffsets
+        RollupUtils.ConfirmData memory data
     ) private {
         uint256 totalNodeCount = data.branches.length;
         // If last node is after deadline, then all nodes are
@@ -392,30 +396,82 @@ contract ArbRollup is IArbRollup, NodeGraph, Staking {
         (bytes32[] memory validNodeHashes, bytes32 confNode) = RollupUtils
             .confirm(data, latestConfirmed());
 
-        uint256 validNodeCount = validNodeHashes.length;
-        for (uint256 i = 0; i < validNodeCount; i++) {
-            emit ConfirmedValidAssertion(validNodeHashes[i]);
-        }
-        uint256 activeCount = checkAlignedStakers(
+        assertions[assertionCount] = Assertion (
             confNode,
-            data.deadlineTicks[totalNodeCount - 1],
-            stakerAddresses,
-            stakerProofs,
-            stakerProofOffsets
+            block.number,
+            false,
+            data.deadlineTicks[totalNodeCount - 1]
         );
+        assertionCount++;
+
+        // uint256 validNodeCount = validNodeHashes.length;
+        // for (uint256 i = 0; i < validNodeCount; i++) {
+        //     emit ConfirmedValidAssertion(validNodeHashes[i]);
+        // }
+        // uint256 activeCount = checkAlignedStakers(
+        //     confNode,
+        //     data.deadlineTicks[totalNodeCount - 1],
+        //     stakerAddresses,
+        //     stakerProofs,
+        //     stakerProofOffsets
+        // );
+        // require(activeCount > 0, CONF_HAS_STAKER);
+
+        // confirmNode(confNode);
+
+        // // Send all messages is a single batch
+        // globalInbox.sendMessages(
+        //     data.messages,
+        //     data.messageCounts,
+        //     validNodeHashes
+        // );
+
+        // if (validNodeCount > 0) {
+        //     emit ConfirmedAssertion(data.logsAcc);
+        // }
+    }
+
+    function unoptimisticConfirmChallange( 
+        address[] memory stakerAddresses,
+        bytes32[] memory stakerProofs,
+        uint256[] memory stakerProofOffsets,
+        uint256 assertionNumber
+        ) public {
+
+            uint256 activeCount = checkAlignedStakers(
+                assertions[assertionNumber].confNode,
+                assertions[assertionNumber].deadlineTicks,
+                stakerAddresses,
+                stakerProofs,
+                stakerProofOffsets
+        );
+
         require(activeCount > 0, CONF_HAS_STAKER);
+         assertions[assertionNumber].isDissproven = true; 
+        // // Send all messages is a single batch
+        // globalInbox.sendMessages(
+        //     data.messages,
+        //     data.messageCounts,
+        //     validNodeHashes
+        // );
 
-        confirmNode(confNode);
+        // if (validNodeCount > 0) {
+        //     emit ConfirmedAssertion(data.logsAcc);
+        // }
 
-        // Send all messages is a single batch
-        globalInbox.sendMessages(
-            data.messages,
-            data.messageCounts,
-            validNodeHashes
-        );
-
-        if (validNodeCount > 0) {
-            emit ConfirmedAssertion(data.logsAcc);
         }
+
+    function unoptimisticConfirmSettlment (
+        uint256 assertionNumber
+    ) public {
+        // check time
+        if (assertions[assertionNumber].isDissproven) {
+            //slash
+        } else {
+            assertions[assertionNumber].startTime.sub(block.Number)
+            confirmNode(assertions[assertionNumber].confNode);
+        }
+        //check lockout
+
     }
 }
